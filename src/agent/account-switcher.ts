@@ -322,7 +322,6 @@ async function switchAccountViaCockpit(wsPort: number, accountIdOrEmail: string)
         payload: {
           account_id: targetId,
           request_id: requestId,
-          launch_on_switch: false,
         },
       },
       (msg) => {
