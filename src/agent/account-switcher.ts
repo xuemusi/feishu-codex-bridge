@@ -37,19 +37,25 @@ export type ResolvedAccountSwitcher =
 
 const SAFE_ACCOUNT_ID = /^[a-zA-Z0-9._@+-]{1,128}$/;
 
-/** Read only the documented `ws_port` from `~/.antigravity_cockpit/server.json`. */
+/** Cockpit Tools data directories: newer versions use `~/.cockpit_tools`, legacy uses `~/.antigravity_cockpit`. */
+const COCKPIT_DATA_DIRS = ['.cockpit_tools', '.antigravity_cockpit'] as const;
+
+/** Read only the documented `ws_port` from Cockpit Tools `server.json`. */
 export function resolveCockpitWsPort(): number | null {
-  const statusFile = join(homedir(), '.antigravity_cockpit', 'server.json');
-  if (!existsSync(statusFile)) return null;
-  try {
-    const raw = JSON.parse(readFileSync(statusFile, 'utf8')) as { ws_port?: unknown };
-    if (typeof raw.ws_port === 'number' && raw.ws_port > 0 && raw.ws_port < 65536) {
-      return raw.ws_port;
+  const home = homedir();
+  for (const dir of COCKPIT_DATA_DIRS) {
+    const statusFile = join(home, dir, 'server.json');
+    if (!existsSync(statusFile)) continue;
+    try {
+      const raw = JSON.parse(readFileSync(statusFile, 'utf8')) as { ws_port?: unknown };
+      if (typeof raw.ws_port === 'number' && raw.ws_port > 0 && raw.ws_port < 65536) {
+        return raw.ws_port;
+      }
+    } catch {
+      /* ignore corrupt/partial status file and try next candidate */
     }
-    return null;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 /** Resolve account switcher config: explicit CLI config first, then env fallback. */
@@ -187,19 +193,22 @@ function readCockpitQuotaForEmail(email: string): AccountQuotaSummary | undefine
   const normalized = email.trim().toLowerCase();
   if (!normalized) return undefined;
   const hash = createHash('sha256').update(normalized).digest('hex');
-  const cacheBase = join(homedir(), '.antigravity_cockpit', 'cache', 'quota_api_v1_desktop');
-  for (const source of ['authorized', 'custom']) {
-    const file = join(cacheBase, source, `${hash}.json`);
-    if (!existsSync(file)) continue;
-    try {
-      const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
-        payload?: { models?: Record<string, CockpitQuotaModel> };
-      };
-      if (parsed.payload?.models) {
-        return summarizeCockpitQuota(parsed.payload.models);
+  const home = homedir();
+  for (const dir of COCKPIT_DATA_DIRS) {
+    const cacheBase = join(home, dir, 'cache', 'quota_api_v1_desktop');
+    for (const source of ['authorized', 'custom']) {
+      const file = join(cacheBase, source, `${hash}.json`);
+      if (!existsSync(file)) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+          payload?: { models?: Record<string, CockpitQuotaModel> };
+        };
+        if (parsed.payload?.models) {
+          return summarizeCockpitQuota(parsed.payload.models);
+        }
+      } catch {
+        /* ignore corrupt/partial cache */
       }
-    } catch {
-      /* ignore corrupt/partial cache */
     }
   }
   return undefined;
