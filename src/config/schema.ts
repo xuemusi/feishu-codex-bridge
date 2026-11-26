@@ -90,6 +90,13 @@ export interface AppAccess {
   allowedChats?: string[];
 }
 
+export interface AccountSwitcherConfig {
+  /** 列出可用账号的本机命令（每行一个账号，或 JSON 数组） */
+  listCmd: string;
+  /** 切换账号的本机命令，使用 `{account}` 占位符接收目标账号 */
+  switchCmd: string;
+}
+
 export interface AppPreferences {
   /** Opt-in Feishu ASR; unavailable recognition preserves the original audio. */
   voice?: import('../voice/types').VoiceConfig;
@@ -128,6 +135,8 @@ export interface AppPreferences {
   /** Bridge 新建聊天会话的 resume 标题配置。每个 agent 后端独立；
    * 缺省/未命中的后端不调模型，直接截断清洗后的首句。 */
   sessionTitles?: SessionTitlesConfig;
+  /** 外部账号切换器 CLI 配置（用于飞书 `/account` 交互卡片）。 */
+  accountSwitcher?: AccountSwitcherConfig;
 }
 
 /** 开启 AI 的完整配置；不允许只填 model 或只填 effort。 */

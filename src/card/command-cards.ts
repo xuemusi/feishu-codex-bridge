@@ -1,10 +1,17 @@
 import type { ModelInfo, ReasoningEffort, ThreadSummary } from '../agent/types';
+import type { AccountEntry } from '../agent/account-switcher';
 import { actions, button, card, hr, linkButton, md, note, selectStatic, type CardElement, type CardObject } from './cards';
 
 /** Action ids for the `/model` card. */
 export const MC = {
   model: 'model.set',
   effort: 'model.effort',
+} as const;
+
+/** Action ids for the `/account` card. */
+export const ACC = {
+  pick: 'account.pick',
+  refresh: 'account.refresh',
 } as const;
 
 /** Action ids for the `/resume` card. */
@@ -382,4 +389,73 @@ export function buildWelcomeCard(
     elements.push(hr(), actions([linkButton('📖 查看完整使用手册', docUrl, 'primary')]));
   }
   return card(elements, { header: { title: '🤖 本群使用说明', template: 'turquoise' }, summary: '本群使用说明' });
+}
+
+// ── /account ──────────────────────────────────────────────────────────────
+
+export interface AccountCardState {
+  chatId: string;
+  requesterOpenId: string;
+  configured: boolean;
+  sourceLabel?: string;
+  accounts: AccountEntry[];
+  createdAt: number;
+  note?: string;
+}
+
+export function buildAccountCard(state: AccountCardState): CardObject {
+  const title = state.sourceLabel ? `🔑 **账号切换（${state.sourceLabel}）**` : '🔑 **账号切换（/account）**';
+  const elements: CardElement[] = [md(title)];
+
+  if (!state.configured) {
+    elements.push(
+      hr(),
+      md(
+        [
+          '尚未配置外部切号 CLI。请在机器人 `config.json` 的 `preferences.accountSwitcher` 中添加：',
+          '```json',
+          '{',
+          '  "accountSwitcher": {',
+          '    "listCmd": "你的列账号命令（如 agy-auth list）",',
+          '    "switchCmd": "你的切号命令（如 agy-auth use {account}）"',
+          '  }',
+          '}',
+          '```',
+          '配置后重启 bridge 即可在飞书一键切号（也可设环境变量 `AGY_ACCOUNT_LIST_CMD` / `AGY_ACCOUNT_SWITCH_CMD`）。',
+        ].join('\n'),
+      ),
+    );
+    return card(elements);
+  }
+
+  const current = state.accounts.find((a) => a.active);
+  elements.push(
+    note(current ? `当前账号：${current.label}` : '选择要切换的账号，切换后下一轮对话自动生效'),
+    hr(),
+  );
+
+  if (state.accounts.length === 0) {
+    elements.push(md('未获取到任何账号，请先在本机 CLI 登录添加账号后点「刷新列表」。'));
+    elements.push(actions([button('🔄 刷新列表', { a: ACC.refresh })]));
+  } else {
+    elements.push(
+      actions([
+        selectStatic({
+          actionId: ACC.pick,
+          placeholder: '选择要切换的账号',
+          initial: current?.id,
+          options: state.accounts.map((a) => ({
+            label: a.active ? `✅ ${a.label}` : a.label,
+            value: a.id,
+          })),
+        }),
+        button('🔄 刷新', { a: ACC.refresh }),
+      ]),
+    );
+  }
+
+  if (state.note) {
+    elements.push(note(state.note));
+  }
+  return card(elements);
 }

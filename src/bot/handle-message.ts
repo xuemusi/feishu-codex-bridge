@@ -85,10 +85,18 @@ import {
   MC,
   reasoningEffortLabel,
   RES,
+  ACC,
+  buildAccountCard,
+  type AccountCardState,
   type HelpScope,
   type ModelCardState,
   type ResumeCardState,
 } from '../card/command-cards';
+import {
+  listAccounts,
+  resolveAccountSwitcher,
+  switchAccount,
+} from '../agent/account-switcher';
 import { buildHistoryCard, type HistoryCardState } from '../card/history-card';
 import {
   ANSWER_EID,
@@ -806,6 +814,8 @@ export function createOrchestrator(
   const resumePending = new Map<string, ResumeCardState>();
   /** pending /model cards, keyed by the card's messageId */
   const modelPending = new Map<string, ModelCardState>();
+  /** pending /account cards, keyed by the card's messageId */
+  const accountPending = new Map<string, AccountCardState>();
   /** active runs indexed by their run card's messageId (for ⏹ 中止) */
   const runsByCard = new Map<string, ActiveState>();
   /** latest run-card state by messageId (to demote a previous turn's card) */
@@ -930,6 +940,10 @@ export function createOrchestrator(
       })) {
         return;
       }
+      if (parseCommand(msg.content.trim()) === 'account') {
+        await handleAccountCommand(msg, msg.content.trim(), false);
+        return;
+      }
       await handleDmConsole(channel, cfg, msg);
       return;
     }
@@ -992,6 +1006,10 @@ export function createOrchestrator(
         await postGroupSettings(msg, project);
         return;
       }
+      if (cmd === 'account') {
+        await handleAccountCommand(msg, text, false);
+        return;
+      }
       const ts = turnSession(msg.chatId, project, msg.senderId);
       if (cmd === 'resume') {
         // 单会话群：就地切回历史会话（重绑本群 session key，不另起话题）。admin 门控在 postResumeCard 内。
@@ -1034,6 +1052,10 @@ export function createOrchestrator(
     if (msg.threadId) {
       if (cmd === 'help') {
         await postHelpCard(msg, 'topic', true, project);
+        return;
+      }
+      if (cmd === 'account') {
+        await handleAccountCommand(msg, text, true);
         return;
       }
       if (cmd === 'resume' || cmd === 'settings') {
@@ -1092,6 +1114,10 @@ export function createOrchestrator(
       await postGroupSettings(msg, project);
       return;
     }
+    if (cmd === 'account') {
+      await handleAccountCommand(msg, text, false);
+      return;
+    }
     if (cmd === 'clear') {
       await channel
         .send(
@@ -1137,7 +1163,7 @@ export function createOrchestrator(
   };
 
   /** Parse a leading slash command; null otherwise. */
-  function parseCommand(text: string): 'resume' | 'model' | 'settings' | 'help' | 'compact' | 'context' | 'clear' | null {
+  function parseCommand(text: string): 'resume' | 'model' | 'settings' | 'help' | 'compact' | 'context' | 'clear' | 'account' | null {
     const m = /^\/(\w+)/.exec(text);
     const name = m?.[1]?.toLowerCase();
     return name === 'resume' ||
@@ -1146,7 +1172,8 @@ export function createOrchestrator(
       name === 'help' ||
       name === 'compact' ||
       name === 'context' ||
-      name === 'clear'
+      name === 'clear' ||
+      name === 'account'
       ? name
       : null;
   }
@@ -1168,7 +1195,7 @@ export function createOrchestrator(
 
   /** 非管理员触发 owner-only 命令(/resume、/settings)时的统一无权限提示。
    * design §5: 管理类命令仅 bot owner(=admins[]) 可用；对话类(/model、/help)对所有人开放。 */
-  async function denyAdminCommand(msg: NormalizedMessage, cmd: 'resume' | 'settings' | 'clear'): Promise<void> {
+  async function denyAdminCommand(msg: NormalizedMessage, cmd: 'resume' | 'settings' | 'clear' | 'account'): Promise<void> {
     await channel
       .send(msg.chatId, { markdown: `⚠️ \`/${cmd}\` 仅 bot 管理员可用。` }, { replyTo: msg.messageId })
       .catch(() => undefined);
@@ -2238,6 +2265,63 @@ export function createOrchestrator(
     const now = Date.now();
     for (const [k, s] of modelPending) if (now - s.createdAt > PENDING_TTL_MS) modelPending.delete(k);
   }
+  function pruneAccountPending(): void {
+    const now = Date.now();
+    for (const [k, s] of accountPending) if (now - s.createdAt > PENDING_TTL_MS) accountPending.delete(k);
+  }
+
+  /** `/account` or `/account <name>`: admin-only account switcher card via configured local CLI. */
+  async function handleAccountCommand(msg: NormalizedMessage, rawText: string, inThread: boolean): Promise<void> {
+    if (!isAdmin(cfg, msg.senderId)) {
+      await denyAdminCommand(msg, 'account');
+      return;
+    }
+    const switcher = resolveAccountSwitcher(cfg.preferences?.accountSwitcher);
+    const arg = rawText.replace(/^\/account\b/i, '').trim();
+
+    if (!switcher) {
+      const state: AccountCardState = {
+        chatId: msg.chatId,
+        requesterOpenId: msg.senderId,
+        configured: false,
+        accounts: [],
+        createdAt: Date.now(),
+      };
+      await sendManagedCard(channel, msg.chatId, buildAccountCard(state), msg.messageId, inThread).catch(() => undefined);
+      return;
+    }
+
+    let noteText: string | undefined;
+    if (arg) {
+      try {
+        const res = await switchAccount(switcher, arg);
+        noteText = res.ok ? `✅ ${res.output}` : `❌ 切换失败：${res.output}`;
+      } catch (err) {
+        noteText = `❌ ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    let accounts = [] as AccountCardState['accounts'];
+    try {
+      accounts = await listAccounts(switcher);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      noteText = noteText ? `${noteText}\n⚠️ 刷新列表失败：${m}` : `⚠️ 获取账号列表失败：${m}`;
+    }
+
+    const state: AccountCardState = {
+      chatId: msg.chatId,
+      requesterOpenId: msg.senderId,
+      configured: true,
+      sourceLabel: switcher.kind === 'cockpit' ? 'Cockpit Tools' : '自定义 CLI',
+      accounts,
+      createdAt: Date.now(),
+      note: noteText,
+    };
+    const res = await sendManagedCard(channel, msg.chatId, buildAccountCard(state), msg.messageId, inThread);
+    pruneAccountPending();
+    accountPending.set(res.messageId, state);
+  }
 
   /**
    * Resolve + authorize a command-card (/model, /resume) action. Only the
@@ -2294,6 +2378,47 @@ export function createOrchestrator(
         await patchSession(state.threadId, { effort: state.effort });
         state.note = '✅ 已设置 effort，下一轮生效';
         return buildModelCard(state);
+      });
+    })
+    .on(ACC.pick, ({ evt, option }) => {
+      const state = authPending(accountPending, evt);
+      if (!state || !option) return;
+      settleUpdate(evt.messageId, async () => {
+        const switcher = resolveAccountSwitcher(cfg.preferences?.accountSwitcher);
+        if (!switcher) {
+          state.configured = false;
+          return buildAccountCard(state);
+        }
+        try {
+          const res = await switchAccount(switcher, option);
+          state.note = res.ok ? `✅ ${res.output}` : `❌ 切换失败：${res.output}`;
+        } catch (err) {
+          state.note = `❌ ${err instanceof Error ? err.message : String(err)}`;
+        }
+        try {
+          state.accounts = await listAccounts(switcher);
+        } catch {
+          /* keep previous list on transient refresh failure */
+        }
+        return buildAccountCard(state);
+      });
+    })
+    .on(ACC.refresh, ({ evt }) => {
+      const state = authPending(accountPending, evt);
+      if (!state) return;
+      settleUpdate(evt.messageId, async () => {
+        const switcher = resolveAccountSwitcher(cfg.preferences?.accountSwitcher);
+        if (!switcher) {
+          state.configured = false;
+          return buildAccountCard(state);
+        }
+        try {
+          state.accounts = await listAccounts(switcher);
+          state.note = '🔄 已刷新账号列表';
+        } catch (err) {
+          state.note = `⚠️ 刷新失败：${err instanceof Error ? err.message : String(err)}`;
+        }
+        return buildAccountCard(state);
       });
     })
     .on(RES.pick, ({ evt, value }) => {
