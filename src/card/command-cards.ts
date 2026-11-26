@@ -429,8 +429,13 @@ export function buildAccountCard(state: AccountCardState): CardObject {
   }
 
   const current = state.accounts.find((a) => a.active);
+  const currentQuota = current?.quota ? ` · ${current.quota.shortText}` : '';
   elements.push(
-    note(current ? `当前账号：${current.label}` : '选择要切换的账号，切换后下一轮对话自动生效'),
+    note(
+      current
+        ? `当前账号：${current.label}${currentQuota}`
+        : '选择要切换的账号，切换后下一轮对话自动生效',
+    ),
     hr(),
   );
 
@@ -438,20 +443,30 @@ export function buildAccountCard(state: AccountCardState): CardObject {
     elements.push(md('未获取到任何账号，请先在本机 CLI 登录添加账号后点「刷新列表」。'));
     elements.push(actions([button('🔄 刷新列表', { a: ACC.refresh })]));
   } else {
+    const quotaLines = state.accounts.map((a) => {
+      const prefix = a.active ? '✅' : '·';
+      const q = a.quota ? ` — \`${a.quota.shortText}\`` : '';
+      return `${prefix} **${a.label}**${q}`;
+    });
+    elements.push(md(quotaLines.join('\n')));
     elements.push(
       actions([
         selectStatic({
           actionId: ACC.pick,
           placeholder: '选择要切换的账号',
           initial: current?.id,
-          options: state.accounts.map((a) => ({
-            label: a.active ? `✅ ${a.label}` : a.label,
-            value: a.id,
-          })),
+          options: state.accounts.map((a) => {
+            const q = a.quota ? ` (${a.quota.shortText})` : '';
+            return {
+              label: `${a.active ? '✅ ' : ''}${a.label}${q}`,
+              value: a.id,
+            };
+          }),
         }),
         button('🔄 刷新', { a: ACC.refresh }),
       ]),
     );
+    elements.push(note('额度缩写：G = Gemini Pro/Neon · C = Claude · F = Flash'));
   }
 
   if (state.note) {

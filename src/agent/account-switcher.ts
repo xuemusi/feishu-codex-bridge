@@ -1,5 +1,5 @@
 import { exec } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -8,10 +8,22 @@ import type { AccountSwitcherConfig } from '../config/schema';
 
 const execAsync = promisify(exec);
 
+export interface AccountQuotaSummary {
+  /** Gemini Pro / Neon remaining % (0-100) */
+  geminiPro?: number;
+  /** Claude Opus / Sonnet remaining % (0-100) */
+  claude?: number;
+  /** Gemini Flash remaining % (0-100) */
+  flash?: number;
+  /** Short one-line summary for select options, e.g. "G:100% C:80% F:100%" */
+  shortText: string;
+}
+
 export interface AccountEntry {
   id: string;
   label: string;
   active: boolean;
+  quota?: AccountQuotaSummary;
 }
 
 export interface SwitchAccountResult {
@@ -133,10 +145,71 @@ interface CockpitAccountInfo {
   subscription_tier?: string | null;
 }
 
+interface CockpitQuotaModel {
+  displayName?: string;
+  quotaInfo?: {
+    remainingFraction?: number;
+    resetTime?: string;
+  };
+}
+
+/** Extract compact Gemini Pro / Claude / Flash remaining percentages from Cockpit quota cache. */
+export function summarizeCockpitQuota(models: Record<string, CockpitQuotaModel>): AccountQuotaSummary | undefined {
+  let geminiPro: number | undefined;
+  let claude: number | undefined;
+  let flash: number | undefined;
+
+  for (const [rawKey, info] of Object.entries(models)) {
+    const frac = info?.quotaInfo?.remainingFraction;
+    if (typeof frac !== 'number' || Number.isNaN(frac)) continue;
+    const pct = Math.max(0, Math.min(100, Math.round(frac * 100)));
+    const key = rawKey.toLowerCase();
+
+    if (key.includes('claude')) {
+      claude = claude === undefined ? pct : Math.min(claude, pct);
+    } else if (key.includes('neon') || key.includes('carbon') || key.includes('argon') || key.includes('pro')) {
+      geminiPro = geminiPro === undefined ? pct : Math.min(geminiPro, pct);
+    } else if (key.includes('flash') && !key.includes('image')) {
+      flash = flash === undefined ? pct : Math.min(flash, pct);
+    }
+  }
+
+  const parts: string[] = [];
+  if (geminiPro !== undefined) parts.push(`G:${geminiPro}%`);
+  if (claude !== undefined) parts.push(`C:${claude}%`);
+  if (flash !== undefined) parts.push(`F:${flash}%`);
+  if (!parts.length) return undefined;
+  return { geminiPro, claude, flash, shortText: parts.join(' ') };
+}
+
+/** Read only the non-credential quota cache JSON written by Cockpit Tools. */
+function readCockpitQuotaForEmail(email: string): AccountQuotaSummary | undefined {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return undefined;
+  const hash = createHash('sha256').update(normalized).digest('hex');
+  const cacheBase = join(homedir(), '.antigravity_cockpit', 'cache', 'quota_api_v1_desktop');
+  for (const source of ['authorized', 'custom']) {
+    const file = join(cacheBase, source, `${hash}.json`);
+    if (!existsSync(file)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+        payload?: { models?: Record<string, CockpitQuotaModel> };
+      };
+      if (parsed.payload?.models) {
+        return summarizeCockpitQuota(parsed.payload.models);
+      }
+    } catch {
+      /* ignore corrupt/partial cache */
+    }
+  }
+  return undefined;
+}
+
 /** Map Cockpit Tools `response.accounts` payload into bridge AccountEntry[]. */
 export function mapCockpitAccounts(
   accounts: CockpitAccountInfo[],
   currentId?: string | null,
+  quotaReader: (email: string) => AccountQuotaSummary | undefined = readCockpitQuotaForEmail,
 ): AccountEntry[] {
   return accounts
     .filter((a) => typeof a.id === 'string' && a.id.trim().length > 0 && !a.disabled)
@@ -145,7 +218,8 @@ export function mapCockpitAccounts(
       const email = (a.email ?? id).trim();
       const tier = a.subscription_tier ? ` [${a.subscription_tier}]` : '';
       const active = Boolean(a.is_current || (currentId && currentId === id));
-      return { id, label: `${email}${tier}`, active };
+      const quota = a.email ? quotaReader(a.email) : undefined;
+      return { id, label: `${email}${tier}`, active, quota };
     });
 }
 

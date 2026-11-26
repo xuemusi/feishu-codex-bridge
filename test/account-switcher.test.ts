@@ -4,6 +4,7 @@ import {
   mapCockpitAccounts,
   parseAccountListOutput,
   resolveAccountSwitcherConfig,
+  summarizeCockpitQuota,
 } from '../src/agent/account-switcher';
 import { buildAccountCard } from '../src/card/command-cards';
 
@@ -73,7 +74,29 @@ describe('account-switcher', () => {
         { id: 'id-2', email: 'b@example.com', is_current: false, disabled: true, subscription_tier: 'FREE' },
       ],
       'id-1',
+      () => ({ geminiPro: 100, claude: 80, flash: 100, shortText: 'G:100% C:80% F:100%' }),
     );
-    expect(mapped).toEqual([{ id: 'id-1', label: 'a@example.com [PRO]', active: true }]);
+    expect(mapped).toEqual([
+      {
+        id: 'id-1',
+        label: 'a@example.com [PRO]',
+        active: true,
+        quota: { geminiPro: 100, claude: 80, flash: 100, shortText: 'G:100% C:80% F:100%' },
+      },
+    ]);
+  });
+
+  it('summarizes Cockpit quota cache models into G/C/F percentages', () => {
+    const q = summarizeCockpitQuota({
+      'gemini-4-neon-medium': { quotaInfo: { remainingFraction: 0.75 } },
+      'claude-opus-4-6-thinking': { quotaInfo: { remainingFraction: 0.4 } },
+      'gemini-3.8-flash-medium': { quotaInfo: { remainingFraction: 1 } },
+    });
+    expect(q).toEqual({
+      geminiPro: 75,
+      claude: 40,
+      flash: 100,
+      shortText: 'G:75% C:40% F:100%',
+    });
   });
 });
