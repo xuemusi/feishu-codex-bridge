@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { paths } from '../config/paths';
 import type { BackendCatalogEntry } from './catalog';
+import { resolveAgyBin } from './antigravity-cli/locate';
 
 /**
  * 按需后端依赖的加载器（npm-ondemand 包，库类 / bin 类；通用基础设施，当前内置后端未用）。
@@ -125,7 +126,10 @@ export function isBackendBinInstalled(binName: string): boolean {
  */
 export function isBackendEntryInstalled(entry: BackendCatalogEntry): boolean {
   const { kind, binName, pkg } = entry.dep;
-  if (kind === 'external-cli') return false;
+  if (kind === 'external-cli') {
+    if (entry.id === 'antigravity-cli') return resolveAgyBin() !== null;
+    return false;
+  }
   if (binName) return isBackendBinInstalled(binName);
   return pkg ? isBackendDepInstalled(pkg) : false;
 }

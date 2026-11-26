@@ -11,10 +11,10 @@ import { DEFAULT_BACKEND_ID, type PermissionMode } from './types';
  */
 
 /** 底层 agent 家族（picker 按此分组；当前仅 Codex 组；string 为未来 agent 预留）。 */
-export type AgentFamily = 'codex' | 'claude' | (string & {});
+export type AgentFamily = 'codex' | 'claude' | 'antigravity' | (string & {});
 
 /** 后端进程的接入方式（仅描述/分组用，不参与运行路由）。 */
-export type BackendAccess = 'app-server' | 'sdk' | 'acp';
+export type BackendAccess = 'app-server' | 'sdk' | 'acp' | 'cli';
 
 /**
  * 依赖类型 —— 决定「装哪 / 怎么检测 / 能不能一键按需装」。
@@ -113,6 +113,20 @@ export const BACKEND_CATALOG: readonly BackendCatalogEntry[] = [
     // 必须与 ClaudeAgentBackend.supportedModes 完全一致（单测强制）。
     supportedModes: ['qa', 'write', 'full'],
     blurb: 'Claude Code（SDK 内置，复用本机登录；qa/write 走 OS 沙箱，能力较 Codex 精简）',
+  },
+  {
+    id: 'antigravity-cli',
+    agentFamily: 'antigravity',
+    displayName: 'Antigravity',
+    access: 'cli',
+    dep: {
+      kind: 'external-cli',
+      pkg: 'agy',
+      detectHint: '未找到 agy CLI（请先安装 Antigravity CLI，或设置 AGY_BIN）',
+      installCmd: '安装 Antigravity CLI 并登录，确保 agy 在 PATH 或 ~/.local/bin/agy',
+    },
+    supportedModes: ['qa', 'write', 'full'],
+    blurb: 'Google Antigravity CLI（复用本机 agy 登录态与模型，支持流式输出、工具调用与多轮续聊）',
   },
 ];
 

@@ -5,12 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * backendForProject 显式优先/回退、ensureAnyAgent 放行。codex 探测 mock，不碰真机环境。
  */
 
-// ── 受控的 codex 探测（detectAgents 据它推导默认）────────────────────────
-const detectState = { codexBin: null as string | null, codexVersion: null as string | null };
+// ── 受控的 codex / agy 探测（detectAgents 据它推导默认）──────────────────
+const detectState = {
+  codexBin: null as string | null,
+  codexVersion: null as string | null,
+  agyBin: null as string | null,
+  agyVersion: null as string | null,
+};
 
 vi.mock('../src/agent/codex-appserver/locate', () => ({
   resolveCodexBin: vi.fn(() => detectState.codexBin),
   codexVersionAsync: vi.fn(async () => detectState.codexVersion),
+}));
+
+vi.mock('../src/agent/antigravity-cli/locate', () => ({
+  resolveAgyBin: vi.fn(() => detectState.agyBin),
+  agyVersionAsync: vi.fn(async () => detectState.agyVersion),
 }));
 
 import { detectAgents, effectiveDefaultBackend, backendForProject } from '../src/agent/detect';
@@ -19,6 +29,8 @@ import { ensureAnyAgent } from '../src/bot/onboarding';
 beforeEach(() => {
   detectState.codexBin = null;
   detectState.codexVersion = null;
+  detectState.agyBin = null;
+  detectState.agyVersion = null;
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -55,12 +67,12 @@ describe('backendForProject：显式优先（须为已注册后端），否则�
   });
 });
 
-describe('detectAgents：按 agent 维度分组（仅 codex）', () => {
-  it('codex 装了 → 单个 agent installed，其 codex-appserver 后端 available', async () => {
+describe('detectAgents：按 agent 维度分组（codex + antigravity）', () => {
+  it('codex 装了 → codex agent installed，其 codex-appserver 后端 available', async () => {
     detectState.codexBin = '/usr/bin/codex';
     detectState.codexVersion = 'codex 9.9';
     const agents = await detectAgents();
-    expect(agents).toHaveLength(1);
+    expect(agents).toHaveLength(2);
     const codex = agents.find((a) => a.id === 'codex')!;
     expect(codex.installed).toBe(true);
     expect(codex.backends).toHaveLength(1);
@@ -70,11 +82,11 @@ describe('detectAgents：按 agent 维度分组（仅 codex）', () => {
     expect(codex.backends[0]!.installable).toBe(false);
   });
 
-  it('codex 未装 → 单个 agent not installed，后端 available:false（仍 installable:false，external-cli 手动装）', async () => {
+  it('codex 未装 → codex agent not installed，后端 available:false（仍 installable:false，external-cli 手动装）', async () => {
     detectState.codexBin = null;
     detectState.codexVersion = null;
     const agents = await detectAgents();
-    expect(agents).toHaveLength(1);
+    expect(agents).toHaveLength(2);
     const codex = agents.find((a) => a.id === 'codex')!;
     expect(codex.installed).toBe(false);
     expect(codex.backends[0]!.available).toBe(false);

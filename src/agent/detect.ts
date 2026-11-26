@@ -2,6 +2,7 @@ import type { BackendProbe, PermissionMode } from './types';
 import { DEFAULT_BACKEND_ID } from './types';
 import { BACKEND_CATALOG, catalogById, type AgentFamily } from './catalog';
 import { resolveCodexBin, codexVersionAsync } from './codex-appserver/locate';
+import { resolveAgyBin, agyVersionAsync } from './antigravity-cli/locate';
 
 /**
  * 按 agent 维度检测（backend-detection.md §1）：探底层 agent（当前仅 codex）→ 推导
@@ -62,9 +63,34 @@ async function probeCodexAgent(): Promise<AgentRuntime> {
   };
 }
 
-/** 探全部 agent（当前仅 codex），并行。绝不抛错（各 probe 自身降级）。 */
+/** 探 Antigravity CLI（复用 resolveAgyBin + agyVersionAsync）。 */
+async function probeAntigravityAgent(): Promise<AgentRuntime> {
+  const entry = BACKEND_CATALOG.find((e) => e.id === 'antigravity-cli')!;
+  const bin = resolveAgyBin({ force: true });
+  const version = bin ? await agyVersionAsync(bin, { force: true }) : null;
+  const installed = !!bin && !!version;
+  return {
+    id: 'antigravity',
+    displayName: 'Antigravity',
+    installed,
+    version,
+    installHint: installed ? undefined : entry.dep.detectHint,
+    backends: [
+      {
+        backendId: 'antigravity-cli',
+        available: installed,
+        reason: !bin ? entry.dep.detectHint : !version ? 'agy --version 失败' : undefined,
+        version,
+        supportedModes: entry.supportedModes,
+        installable: false,
+      },
+    ],
+  };
+}
+
+/** 探全部 agent，并行。绝不抛错（各 probe 自身降级）。 */
 export async function detectAgents(): Promise<AgentRuntime[]> {
-  return Promise.all([probeCodexAgent()]);
+  return Promise.all([probeCodexAgent(), probeAntigravityAgent()]);
 }
 
 /** 从一次 detectAgents 结果挑默认后端（智能默认规则）。 */

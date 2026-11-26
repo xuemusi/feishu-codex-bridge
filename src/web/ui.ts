@@ -975,7 +975,7 @@ ${UI_PURE_JS}
     if (s === 'disconnected') return '❌ 已断开';
     return s;
   }
-  function familyName(f) { return f === 'codex' ? 'Codex' : f === 'claude' ? 'Claude' : f; }
+  function familyName(f) { return f === 'codex' ? 'Codex' : f === 'claude' ? 'Claude' : f === 'antigravity' ? 'Antigravity' : f; }
   function botTitle(b) { return (b.running ? '🟢 ' : '🟠 ') + (b.botName || b.name); }
 
   function fmtUptime(ms) {
@@ -1383,7 +1383,7 @@ ${UI_PURE_JS}
     for (var i = 0; i < catalog.entries.length; i++) if (catalog.entries[i].id === id) return catalog.entries[i];
     return null;
   }
-  function bkFamilyIcon(family) { return family === 'codex' ? '⚡' : family === 'claude' ? '✳️' : '🧩'; }
+  function bkFamilyIcon(family) { return family === 'codex' ? '⚡' : family === 'claude' ? '✳️' : family === 'antigravity' ? '🪐' : '🧩'; }
   // 该后端被哪些项目关联（项目在创建时选定后端，运行时固定）。从 /api/state 派生。
   function projectsForBackend(id) {
     var out = [];

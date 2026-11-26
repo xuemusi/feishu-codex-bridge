@@ -52,9 +52,10 @@ describe('catalog ↔ REGISTRY 配对（防漏注册）', () => {
     expect(isInstallable(catalogById('codex-appserver')!)).toBe(false);
   });
 
-  it('catalogByFamily 分组：codex 组 / claude 组各 1 条', () => {
+  it('catalogByFamily 分组：codex 组 / claude 组 / antigravity 组各 1 条', () => {
     expect(catalogByFamily('codex').map((e) => e.id)).toEqual(['codex-appserver']);
     expect(catalogByFamily('claude').map((e) => e.id)).toEqual(['claude-agent']);
+    expect(catalogByFamily('antigravity').map((e) => e.id)).toEqual(['antigravity-cli']);
   });
 });
 
@@ -62,32 +63,33 @@ describe('projectCreatableBackends —— 飞书新建/绑定卡的「可选后�
   const ids = (mode: 'qa' | 'write' | 'full', inst: (e: { id: string }) => boolean) =>
     projectCreatableBackends(mode, inst).map((e) => e.id);
 
-  it('codex 是默认基线 → 即便都「未下载」也始终可选；claude-agent 未装则不出现', () => {
+  it('codex 是默认基线 → 即便都「未下载」也始终可选；其余后端未装则不出现', () => {
     expect(ids('full', () => false)).toEqual(['codex-appserver']);
   });
 
-  it('qa 档（外部群）→ codex + 已装的 claude-agent 都可选（两者都支持 qa 档）', () => {
-    expect(ids('qa', () => true)).toEqual(['codex-appserver', 'claude-agent']);
+  it('qa 档（外部群）→ codex + 已装的 claude-agent / antigravity-cli 都可选', () => {
+    expect(ids('qa', () => true)).toEqual(['codex-appserver', 'claude-agent', 'antigravity-cli']);
   });
 
-  it('任意权限档：codex 恒在；claude-agent 仅在「已装」时出现（按下载态过滤）', () => {
+  it('任意权限档：codex 恒在；其余后端仅在「已装」时出现（按下载态过滤）', () => {
     for (const mode of ['qa', 'write', 'full'] as const) {
-      expect(ids(mode, () => true)).toEqual(['codex-appserver', 'claude-agent']);
+      expect(ids(mode, () => true)).toEqual(['codex-appserver', 'claude-agent', 'antigravity-cli']);
       expect(ids(mode, () => false)).toEqual(['codex-appserver']);
     }
   });
 });
 
-describe('可见 catalog 与注册派生（codex + claude-agent）', () => {
-  it('visibleCatalog() 含 codex 与 claude-agent（Web 后端页 / 体检页 / picker 数据源）', () => {
-    expect(visibleCatalog().map((e) => e.id)).toEqual(['codex-appserver', 'claude-agent']);
+describe('可见 catalog 与注册派生（codex + claude-agent + antigravity-cli）', () => {
+  it('visibleCatalog() 含 codex、claude-agent 与 antigravity-cli（Web 后端页 / 体检页 / picker 数据源）', () => {
+    expect(visibleCatalog().map((e) => e.id)).toEqual(['codex-appserver', 'claude-agent', 'antigravity-cli']);
   });
 
-  it('catalogBackendIds 与 REGISTRY 配对不破（两条）', () => {
-    expect([...catalogBackendIds()].sort()).toEqual(['claude-agent', 'codex-appserver']);
-    // 工厂存在：两个 id 都能构造出实例。
+  it('catalogBackendIds 与 REGISTRY 配对不破（三条）', () => {
+    expect([...catalogBackendIds()].sort()).toEqual(['antigravity-cli', 'claude-agent', 'codex-appserver']);
+    // 工厂存在：三个 id 都能构造出实例。
     expect(createBackend('codex-appserver').id).toBe('codex-appserver');
     expect(createBackend('claude-agent').id).toBe('claude-agent');
+    expect(createBackend('antigravity-cli').id).toBe('antigravity-cli');
   });
 
   it('createBackend 未注册 id 仍抛错（错误信息含 codex-appserver）', () => {

@@ -149,7 +149,7 @@ export interface SessionTitlesConfig {
  * This constrains the transport, not the model id: third-party/custom models
  * remain unrestricted. Unknown future backends receive the full bridge ladder. */
 export function getSessionTitleEfforts(backendId: string): readonly ReasoningEffort[] {
-  if (backendId === 'claude-agent') return ['low', 'medium', 'high', 'xhigh', 'max'];
+  if (backendId === 'claude-agent' || backendId === 'antigravity-cli') return ['low', 'medium', 'high', 'xhigh', 'max'];
   return REASONING_EFFORTS;
 }
 
