@@ -80,6 +80,11 @@ describe('antigravity-cli event-map', () => {
           state: 'DONE',
           step_type: 'agent_response',
           text_delta: 'World',
+          usage: {
+            input_tokens: 200,
+            output_tokens: 10,
+            cache_read_tokens: 800,
+          },
         },
       }),
     ).toEqual([
@@ -103,7 +108,7 @@ describe('antigravity-cli event-map', () => {
       }),
     ).toEqual([
       { type: 'usage', inputTokens: 1000, outputTokens: 50 },
-      { type: 'context_usage', usedTokens: 5000, contextWindow: 1_000_000 },
+      { type: 'context_usage', usedTokens: 1000, contextWindow: 1_000_000 },
     ]);
   });
 });

@@ -65,6 +65,9 @@ export function createAgyTurnMapper(ctx: AgyMapContext = {}): AgyTurnMapper {
   let systemEmitted = false;
   let initModel: string | undefined;
   let emittedText = false;
+  /** Last single-step context size (input + cache_read). `result.usage` is the
+   * cumulative sum across all tool-call steps in a turn, NOT the current context window. */
+  let lastStepContextUsed = 0;
   const openText = new Map<number, string>();
   const openThinking = new Map<number, string>();
   const startedTools = new Set<number>();
@@ -98,6 +101,11 @@ export function createAgyTurnMapper(ctx: AgyMapContext = {}): AgyTurnMapper {
           emittedText = true;
           openText.set(idx, (openText.get(idx) ?? '') + u.text_delta);
           out.push({ type: 'text_delta', itemId: textId, delta: u.text_delta });
+        }
+
+        if (u.usage) {
+          const stepUsed = (u.usage.input_tokens ?? 0) + (u.usage.cache_read_tokens ?? 0);
+          if (stepUsed > 0) lastStepContextUsed = stepUsed;
         }
 
         if (u.state === 'DONE') {
@@ -167,7 +175,10 @@ export function createAgyTurnMapper(ctx: AgyMapContext = {}): AgyTurnMapper {
           inputTokens: usage.input_tokens,
           outputTokens: usage.output_tokens,
         });
-        const used = (usage.input_tokens ?? 0) + (usage.cache_read_tokens ?? 0);
+        const used =
+          lastStepContextUsed > 0
+            ? lastStepContextUsed
+            : (usage.input_tokens ?? 0) + (usage.cache_read_tokens ?? 0);
         if (used > 0) {
           out.push({
             type: 'context_usage',
