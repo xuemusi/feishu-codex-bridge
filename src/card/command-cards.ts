@@ -466,7 +466,7 @@ export function buildAccountCard(state: AccountCardState): CardObject {
         button('🔄 刷新', { a: ACC.refresh }),
       ]),
     );
-    elements.push(note('额度缩写：G = Gemini Pro/Neon · C = Claude · F = Flash'));
+    elements.push(note('额度缩写：G = Gemini · C = Claude/GPT（前为5h窗口，后为周额度）· F = Flash'));
   }
 
   if (state.note) {

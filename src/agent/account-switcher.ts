@@ -9,13 +9,17 @@ import type { AccountSwitcherConfig } from '../config/schema';
 const execAsync = promisify(exec);
 
 export interface AccountQuotaSummary {
-  /** Gemini Pro / Neon remaining % (0-100) */
+  /** Gemini Pro / Neon 5h remaining % (0-100) */
   geminiPro?: number;
-  /** Claude Opus / Sonnet remaining % (0-100) */
+  /** Gemini weekly remaining % (0-100) */
+  geminiWeekly?: number;
+  /** Claude / GPT 5h remaining % (0-100) */
   claude?: number;
-  /** Gemini Flash remaining % (0-100) */
+  /** Claude / GPT weekly remaining % (0-100) */
+  claudeWeekly?: number;
+  /** Gemini Flash remaining % (0-100, legacy models fallback) */
   flash?: number;
-  /** Short one-line summary for select options, e.g. "G:100% C:80% F:100%" */
+  /** Short one-line summary for select options, e.g. "G:100%/周65% C:100%/周100%" */
   shortText: string;
 }
 
@@ -153,16 +157,91 @@ interface CockpitQuotaModel {
   };
 }
 
-/** Extract compact Gemini Pro / Claude / Flash remaining percentages from Cockpit quota cache. */
-export function summarizeCockpitQuota(models: Record<string, CockpitQuotaModel>): AccountQuotaSummary | undefined {
+interface CockpitQuotaBucket {
+  bucketId?: string;
+  window?: string;
+  remainingFraction?: number;
+  resetTime?: string;
+}
+
+interface CockpitQuotaGroup {
+  displayName?: string;
+  buckets?: CockpitQuotaBucket[];
+}
+
+export interface CockpitQuotaSummary {
+  groups?: CockpitQuotaGroup[];
+}
+
+function toQuotaPercent(frac: unknown): number | undefined {
+  if (typeof frac !== 'number' || Number.isNaN(frac)) return undefined;
+  return Math.max(0, Math.min(100, Math.round(frac * 100)));
+}
+
+/** Extract compact Gemini / Claude 5h + weekly remaining percentages from Cockpit quota cache. */
+export function summarizeCockpitQuota(
+  models: Record<string, CockpitQuotaModel>,
+  quotaSummary?: CockpitQuotaSummary,
+): AccountQuotaSummary | undefined {
   let geminiPro: number | undefined;
+  let geminiWeekly: number | undefined;
   let claude: number | undefined;
+  let claudeWeekly: number | undefined;
   let flash: number | undefined;
 
+  if (Array.isArray(quotaSummary?.groups) && quotaSummary.groups.length > 0) {
+    for (const group of quotaSummary.groups) {
+      const groupName = (group.displayName ?? '').toLowerCase();
+      for (const bucket of group.buckets ?? []) {
+        const pct = toQuotaPercent(bucket.remainingFraction);
+        if (pct === undefined) continue;
+        const id = (bucket.bucketId ?? '').toLowerCase();
+        const win = (bucket.window ?? '').toLowerCase();
+
+        const isGemini = id.includes('gemini') || groupName.includes('gemini');
+        const isClaude = id.includes('3p') || id.includes('claude') || groupName.includes('claude');
+        const isWeekly = win === 'weekly' || id.includes('weekly');
+        const is5h = win === '5h' || id.includes('5h');
+
+        if (isGemini && isWeekly) {
+          geminiWeekly = pct;
+        } else if (isGemini && is5h) {
+          geminiPro = pct;
+        } else if (isClaude && isWeekly) {
+          claudeWeekly = pct;
+        } else if (isClaude && is5h) {
+          claude = pct;
+        }
+      }
+    }
+
+    const parts: string[] = [];
+    if (geminiPro !== undefined || geminiWeekly !== undefined) {
+      if (geminiPro !== undefined && geminiWeekly !== undefined) {
+        parts.push(`G:${geminiPro}%/周${geminiWeekly}%`);
+      } else if (geminiWeekly !== undefined) {
+        parts.push(`G:周${geminiWeekly}%`);
+      } else {
+        parts.push(`G:${geminiPro}%`);
+      }
+    }
+    if (claude !== undefined || claudeWeekly !== undefined) {
+      if (claude !== undefined && claudeWeekly !== undefined) {
+        parts.push(`C:${claude}%/周${claudeWeekly}%`);
+      } else if (claudeWeekly !== undefined) {
+        parts.push(`C:周${claudeWeekly}%`);
+      } else {
+        parts.push(`C:${claude}%`);
+      }
+    }
+    if (parts.length > 0) {
+      return { geminiPro, geminiWeekly, claude, claudeWeekly, shortText: parts.join(' ') };
+    }
+  }
+
   for (const [rawKey, info] of Object.entries(models)) {
-    const frac = info?.quotaInfo?.remainingFraction;
-    if (typeof frac !== 'number' || Number.isNaN(frac)) continue;
-    const pct = Math.max(0, Math.min(100, Math.round(frac * 100)));
+    const pct = toQuotaPercent(info?.quotaInfo?.remainingFraction);
+    if (pct === undefined) continue;
     const key = rawKey.toLowerCase();
 
     if (key.includes('claude')) {
@@ -193,10 +272,13 @@ function readCockpitQuotaForEmail(email: string): AccountQuotaSummary | undefine
     if (!existsSync(file)) continue;
     try {
       const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
-        payload?: { models?: Record<string, CockpitQuotaModel> };
+        payload?: {
+          models?: Record<string, CockpitQuotaModel>;
+          quota_summary?: CockpitQuotaSummary;
+        };
       };
-      if (parsed.payload?.models) {
-        return summarizeCockpitQuota(parsed.payload.models);
+      if (parsed.payload?.models || parsed.payload?.quota_summary) {
+        return summarizeCockpitQuota(parsed.payload.models ?? {}, parsed.payload.quota_summary);
       }
     } catch {
       /* ignore corrupt/partial cache */

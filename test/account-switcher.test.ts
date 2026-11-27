@@ -99,4 +99,37 @@ describe('account-switcher', () => {
       shortText: 'G:75% C:40% F:100%',
     });
   });
+
+  it('prefers Cockpit quota_summary 5h + weekly buckets when available', () => {
+    const q = summarizeCockpitQuota(
+      {
+        'gemini-4-neon-medium': { quotaInfo: { remainingFraction: 1 } },
+      },
+      {
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.645 },
+              { bucketId: 'gemini-5h', window: '5h', remainingFraction: 1 },
+            ],
+          },
+          {
+            displayName: 'Claude and GPT models',
+            buckets: [
+              { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 1 },
+              { bucketId: '3p-5h', window: '5h', remainingFraction: 0.8 },
+            ],
+          },
+        ],
+      },
+    );
+    expect(q).toEqual({
+      geminiPro: 100,
+      geminiWeekly: 65,
+      claude: 80,
+      claudeWeekly: 100,
+      shortText: 'G:100%/周65% C:80%/周100%',
+    });
+  });
 });
